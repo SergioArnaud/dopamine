@@ -1,0 +1,92 @@
+import dopamine.jax.agents.full_rainbow.full_rainbow_agent
+import dopamine.jax.agents.dqn.dqn_agent
+import dopamine.jax.networks
+import dopamine.discrete_domains.atari_lib
+import dopamine.discrete_domains.run_experiment
+import dopamine.replay_memory.prioritized_replay_buffer
+
+# ---------------------------------------------------------
+# Modified by us for the vgdl experiments
+# ---------------------------------------------------------
+
+# Change this to log the parameter set used in vgdl experiments
+atari_lib.create_atari_environment.parameter_set = 'full_efficient_rainbow'
+
+
+Runner.num_iterations = 20
+Runner.training_steps = 50000  # agent steps
+Runner.evaluation_steps = 0  # agent steps
+Runner.max_steps_per_episode = 27000  # agent steps
+
+JaxDQNAgent.epsilon_decay_period = 150000  # agent steps
+
+# ---------------------------------------------------------
+# The following hyperparameters follow Hessel et al. (2019).
+# to implement data efficient Rainbow DQN
+# https://arxiv.org/pdf/1906.05243.pdf
+# ---------------------------------------------------------
+
+# No frame skip
+AtariPreprocessing.frame_skip = 1
+
+# Increase the number of steps in the multi-step returns from 3 to 20
+JaxDQNAgent.update_horizon = 20
+
+# Updated every step
+JaxDQNAgent.update_period = 1
+
+# Reduce the number of steps before we start sampling from replay from 20,000 to 1600
+JaxDQNAgent.min_replay_history = 1600  # agent steps
+
+# Another architecture for the convolutional layers
+RainbowAgent.architecture = 'efficient'
+
+# And a higher learning rate
+create_optimizer.learning_rate = 0.0001
+
+# ---------------------------------------------------------
+# The other hyperparameters follow Hessel et al. (2018), except for sticky_actions,
+# which was False (not using sticky actions) in the original paper.
+# ---------------------------------------------------------
+
+# terminal_on_life_loss
+AtariPreprocessing.terminal_on_life_loss = True
+
+# target_update_period
+JaxDQNAgent.target_update_period = 2000  
+
+# Rainbow config
+JaxFullRainbowAgent.noisy = True
+JaxFullRainbowAgent.dueling = True
+JaxFullRainbowAgent.double_dqn = True
+
+# Rainbow agent parameters
+JaxFullRainbowAgent.epsilon_fn = @dqn_agent.identity_epsilon
+JaxFullRainbowAgent.replay_scheme = 'prioritized'
+JaxFullRainbowAgent.num_atoms = 51
+JaxFullRainbowAgent.vmax = 10.
+JaxDQNAgent.gamma = 0.99
+JaxDQNAgent.epsilon_train = 0.01
+JaxDQNAgent.epsilon_eval = 0.001
+
+# Optimizer
+JaxDQNAgent.optimizer = 'adam'
+create_optimizer.beta1 = 0.9
+create_optimizer.beta2 = 0.999
+create_optimizer.eps = .00015
+
+# Sticky actions with probability 0.25, as suggested by (Machado et al., 2017).
+atari_lib.create_atari_environment.sticky_actions = True
+
+# Replay buffer
+OutOfGraphPrioritizedReplayBuffer.batch_size = 32
+OutOfGraphPrioritizedReplayBuffer.replay_capacity = 1000000
+
+# Runner
+create_runner.schedule = 'continuous_train'
+create_agent.agent_name = 'jax_rainbow'
+create_agent.debug_mode = True
+
+
+
+

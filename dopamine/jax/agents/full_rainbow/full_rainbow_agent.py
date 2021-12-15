@@ -179,7 +179,8 @@ class JaxFullRainbowAgent(dqn_agent.JaxDQNAgent):
                replay_scheme='prioritized',
                summary_writer=None,
                seed=None,
-               preprocess_fn=None):
+               preprocess_fn=None, 
+               architecture='efficient',):
     """Initializes the agent and constructs the necessary components.
 
     Args:
@@ -208,6 +209,8 @@ class JaxFullRainbowAgent(dqn_agent.JaxDQNAgent):
         it preprocesses (such as normalizing the pixel values between 0 and 1)
         before passing it to the Q-network. Defaults to None.
     """
+    if architecture == 'efficient':
+        network = networks.EfficientFullRainbowNetwork
     logging.info('Creating %s agent with the following parameters:',
                  self.__class__.__name__)
     logging.info('\t double_dqn: %s', double_dqn)

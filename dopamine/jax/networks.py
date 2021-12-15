@@ -402,3 +402,66 @@ class FullRainbowNetwork(nn.Module):
       return atari_lib.RainbowNetworkType(q_values, logits, probabilities)
     q_values = jnp.sum(logits, axis=1)  # Sum over all the num_atoms
     return atari_lib.DQNNetworkType(q_values)
+
+
+
+@gin.configurable
+class FullEfficientRainbowNetwork(nn.Module):
+  """Jax Rainbow network for Full Efficient-Rainbow.
+
+  Attributes:
+    num_actions: int, number of actions the agent can take at any state.
+    num_atoms: int, the number of buckets of the value function distribution.
+    noisy: bool, Whether to use noisy networks.
+    dueling: bool, Whether to use dueling network architecture.
+    distributional: bool, whether to use distributional RL.
+  """
+  num_actions: int
+  num_atoms: int
+  noisy: bool = True
+  dueling: bool = True
+  distributional: bool = True
+  inputs_preprocessed: bool = False
+
+  @nn.compact
+  def __call__(self, x, support, eval_mode=False, key=None):
+    # Generate a random number generation key if not provided
+    if key is None:
+      key = jax.random.PRNGKey(int(time.time() * 1e6))
+
+    if not self.inputs_preprocessed:
+      x = preprocess_atari_inputs(x)
+
+    hidden_sizes = [32, 64]
+    kernel_sizes = [5, 5]
+    stride_sizes = [5, 5]
+    for hidden_size, kernel_size, stride_size in zip(hidden_sizes, kernel_sizes,
+                                                     stride_sizes):
+      x = nn.Conv(
+          features=hidden_size,
+          kernel_size=(kernel_size, kernel_size),
+          strides=(stride_size, stride_size),
+          kernel_init=nn.initializers.xavier_uniform())(x)
+      x = nn.relu(x)
+    x = x.reshape((-1))  # flatten
+
+    net = feature_layer(key, self.noisy, eval_mode=eval_mode)
+    x = net(x, features=256)  # Single hidden layer of size 512
+    x = nn.relu(x)
+
+    if self.dueling:
+      adv = net(x, features=self.num_actions * self.num_atoms)
+      value = net(x, features=self.num_atoms)
+      adv = adv.reshape((self.num_actions, self.num_atoms))
+      value = value.reshape((1, self.num_atoms))
+      logits = value + (adv - (jnp.mean(adv, axis=0, keepdims=True)))
+    else:
+      x = net(x, features=self.num_actions * self.num_atoms)
+      logits = x.reshape((self.num_actions, self.num_atoms))
+
+    if self.distributional:
+      probabilities = nn.softmax(logits)
+      q_values = jnp.sum(support * probabilities, axis=1)
+      return atari_lib.RainbowNetworkType(q_values, logits, probabilities)
+    q_values = jnp.sum(logits, axis=1)  # Sum over all the num_atoms
+    return atari_lib.DQNNetworkType(q_values)

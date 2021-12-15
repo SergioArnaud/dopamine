@@ -541,7 +541,7 @@ class JaxDQNAgent(object):
           priority=priority,
           episode_end=episode_end)
 
-  def bundle_and_checkpoint(self, checkpoint_dir, iteration_number):
+  def bundle_and_checkpoint(self, checkpoint_dir, iteration_number, vgdl_level=0):
     """Returns a self-contained bundle of the agent's state.
 
     This is used for checkpointing. It will return a dictionary containing all
@@ -564,6 +564,7 @@ class JaxDQNAgent(object):
     bundle_dictionary = {
         'state': self.state,
         'training_steps': self.training_steps,
+        'vgdl_level' : vgdl_level,
         'online_params': self.online_params,
         'optimizer_state': self.optimizer_state,
         'target_params': self.target_network_params
