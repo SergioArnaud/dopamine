@@ -76,7 +76,8 @@ class RainbowAgent(dqn_agent.DQNAgent):
                optimizer=tf.compat.v1.train.AdamOptimizer(
                    learning_rate=0.00025, epsilon=0.0003125),
                summary_writer=None,
-               summary_writing_frequency=500):
+               summary_writing_frequency=500,
+               architecture="canonical"):
     """Initializes the agent and constructs the components of its graph.
 
     Args:
@@ -122,6 +123,9 @@ class RainbowAgent(dqn_agent.DQNAgent):
       summary_writing_frequency: int, frequency with which summaries will be
         written. Lower values will result in slower training.
     """
+
+    if architecture == 'efficient':
+        network = atari_lib.EfficientRainbowNetwork
     # We need this because some tools convert round floats into ints.
     vmax = float(vmax)
     self._num_atoms = num_atoms

@@ -75,42 +75,43 @@ ImplicitQuantileNetworkType = collections.namedtuple(
 
 
 @gin.configurable
-def create_atari_environment(game_name=None, sticky_actions=True):
-  """Wraps an Atari 2600 Gym environment with some basic preprocessing.
+def create_atari_environment(game_name=None, sticky_actions=True, parameter_set=''):
+    """Wraps an Atari 2600 Gym environment with some basic preprocessing.
 
-  This preprocessing matches the guidelines proposed in Machado et al. (2017),
-  "Revisiting the Arcade Learning Environment: Evaluation Protocols and Open
-  Problems for General Agents".
+    This preprocessing matches the guidelines proposed in Machado et al. (2017),
+    "Revisiting the Arcade Learning Environment: Evaluation Protocols and Open
+    Problems for General Agents".
 
-  The created environment is the Gym wrapper around the Arcade Learning
-  Environment.
+    The created environment is the Gym wrapper around the Arcade Learning
+    Environment.
 
-  The main choice available to the user is whether to use sticky actions or not.
-  Sticky actions, as prescribed by Machado et al., cause actions to persist
-  with some probability (0.25) when a new command is sent to the ALE. This
-  can be viewed as introducing a mild form of stochasticity in the environment.
-  We use them by default.
+    The main choice available to the user is whether to use sticky actions or not.
+    Sticky actions, as prescribed by Machado et al., cause actions to persist
+    with some probability (0.25) when a new command is sent to the ALE. This
+    can be viewed as introducing a mild form of stochasticity in the environment.
+    We use them by default.
 
-  Args:
+    Args:
     game_name: str, the name of the Atari 2600 domain.
     sticky_actions: bool, whether to use sticky_actions as per Machado et al.
 
-  Returns:
+    Returns:
     An Atari 2600 environment with some standard preprocessing.
-  """
-  assert game_name is not None
-  if game_name[0:4] == 'VGDL':
-    env = DopamineVGDLEnv(game_name)
-  else:
-    game_version = 'v0' if sticky_actions else 'v4'
-    full_game_name = '{}NoFrameskip-{}'.format(game_name, game_version)
-    env = gym.make(full_game_name)
-    # Strip out the TimeLimit wrapper from Gym, which caps us at 100k frames. We
-    # handle this time limit internally instead, which lets us cap at 108k frames
-    # (30 minutes). The TimeLimit wrapper also plays poorly with saving and
-    # restoring states.
-    env = env.env
-    env = AtariPreprocessing(env)
+    """
+
+    assert game_name is not None
+    if game_name[0:4] == 'VGDL':
+        env = DopamineVGDLEnv(game_name, parameter_set)
+    else:
+        game_version = 'v0' if sticky_actions else 'v4'
+        full_game_name = '{}NoFrameskip-{}'.format(game_name, game_version)
+        env = gym.make(full_game_name)
+        # Strip out the TimeLimit wrapper from Gym, which caps us at 100k frames. We
+        # handle this time limit internally instead, which lets us cap at 108k frames
+        # (30 minutes). The TimeLimit wrapper also plays poorly with saving and
+        # restoring states.
+        env = env.env
+        env = AtariPreprocessing(env)
     return env
 
 
@@ -248,6 +249,64 @@ class RainbowNetwork(tf.keras.Model):
     x = self.conv1(x)
     x = self.conv2(x)
     x = self.conv3(x)
+    x = self.flatten(x)
+    x = self.dense1(x)
+    x = self.dense2(x)
+    logits = tf.reshape(x, [-1, self.num_actions, self.num_atoms])
+    probabilities = tf.keras.activations.softmax(logits)
+    q_values = tf.reduce_sum(self.support * probabilities, axis=2)
+    return RainbowNetworkType(q_values, logits, probabilities)
+
+class EfficientRainbowNetwork(tf.keras.Model):
+  """The convolutional network used to compute agent's return distributions."""
+
+  def __init__(self, num_actions, num_atoms, support, name=None):
+    """Creates the layers used calculating return distributions.
+
+    Args:
+      num_actions: int, number of actions.
+      num_atoms: int, the number of buckets of the value function distribution.
+      support: tf.linspace, the support of the Q-value distribution.
+      name: str, used to crete scope for network parameters.
+    """
+    super(EfficientRainbowNetwork, self).__init__(name=name)
+    activation_fn = tf.keras.activations.relu
+    self.num_actions = num_actions
+    self.num_atoms = num_atoms
+    self.support = support
+    self.kernel_initializer = tf.keras.initializers.VarianceScaling(
+        scale=1.0 / np.sqrt(3.0), mode='fan_in', distribution='uniform')
+    # Defining layers.
+    self.conv1 = tf.keras.layers.Conv2D(
+        32, [5, 5], strides=5, padding='same', activation=activation_fn,
+        kernel_initializer=self.kernel_initializer, name='Conv')
+    self.conv2 = tf.keras.layers.Conv2D(
+        64, [5, 5], strides=5, padding='same', activation=activation_fn,
+        kernel_initializer=self.kernel_initializer, name='Conv')
+    self.flatten = tf.keras.layers.Flatten()
+    self.dense1 = tf.keras.layers.Dense(
+        256, activation=activation_fn,
+        kernel_initializer=self.kernel_initializer, name='fully_connected')
+    self.dense2 = tf.keras.layers.Dense(
+        num_actions * num_atoms, kernel_initializer=self.kernel_initializer,
+        name='fully_connected')
+
+  def call(self, state):
+    """Creates the output tensor/op given the state tensor as input.
+
+    See https://www.tensorflow.org/api_docs/python/tf/keras/Model for more
+    information on this. Note that tf.keras.Model implements `call` which is
+    wrapped by `__call__` function by tf.keras.Model.
+
+    Args:
+      state: Tensor, input tensor.
+    Returns:
+      collections.namedtuple, output ops (graph mode) or output tensors (eager).
+    """
+    x = tf.cast(state, tf.float32)
+    x = x / 255
+    x = self.conv1(x)
+    x = self.conv2(x)
     x = self.flatten(x)
     x = self.dense1(x)
     x = self.dense2(x)
