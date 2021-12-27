@@ -214,7 +214,7 @@ class Runner(object):
     self._summary_writer = tf.compat.v1.summary.FileWriter(self._base_dir)
 
     print('Create environment function: {}'.format(create_environment_fn))
-    self._environment = create_environment_fn()
+    self._environment = create_environment_fn(dir_name=self._base_dir)
     config = tf.compat.v1.ConfigProto(allow_soft_placement=True)
     # Allocate only subset of the GPU memory as needed which allows for running
     # multiple agents/workers on the same GPU.

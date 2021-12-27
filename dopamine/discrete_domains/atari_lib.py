@@ -75,7 +75,7 @@ ImplicitQuantileNetworkType = collections.namedtuple(
 
 
 @gin.configurable
-def create_atari_environment(game_name=None, sticky_actions=True, parameter_set=''):
+def create_atari_environment(game_name=None, sticky_actions=True, parameter_set='', dir_name=None):
     """Wraps an Atari 2600 Gym environment with some basic preprocessing.
 
     This preprocessing matches the guidelines proposed in Machado et al. (2017),
@@ -101,7 +101,8 @@ def create_atari_environment(game_name=None, sticky_actions=True, parameter_set=
 
     assert game_name is not None
     if game_name[0:4] == 'VGDL':
-        env = DopamineVGDLEnv(game_name, parameter_set)
+        tag = dir_name.split('_')[-1]
+        env = DopamineVGDLEnv(game_name, parameter_set, tag=tag)
     else:
         game_version = 'v0' if sticky_actions else 'v4'
         full_game_name = '{}NoFrameskip-{}'.format(game_name, game_version)
