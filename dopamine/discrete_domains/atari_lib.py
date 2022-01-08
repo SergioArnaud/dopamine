@@ -623,7 +623,7 @@ class AtariPreprocessing(object):
       else:
         is_terminal = game_over
 
-      if is_terminal:
+      if game_over:
         self.episode += 1
         self.episode_timestep = 0
         self.episode_score = 0
