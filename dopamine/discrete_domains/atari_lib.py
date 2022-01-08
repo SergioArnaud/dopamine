@@ -51,6 +51,9 @@ import gym
 from gym.spaces.box import Box
 import numpy as np
 import tensorflow as tf
+import uuid
+import time
+import csv
 
 import os, sys, inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -72,7 +75,43 @@ ImplicitQuantileNetworkType = collections.namedtuple(
     'iqn_network', ['quantile_values', 'quantiles'])
 
 
+def log_game_score(
+    path,
+    experiment_id,
+    experiment_timestep,
+    episode,
+    episode_score,
+    timestep_episode,
+    best_score,
+    accumulated_score,
+):
 
+    filename = "{}/game_score_{}.csv".format(path, experiment_id)
+
+    # We have human max score data reported every 15 seconds.
+    if not os.path.exists(filename):
+
+        cols = [
+            "experiment_timestep",
+            "episode",
+            "episode_score",
+            "timestep_episode",
+            "best_score",
+            "accumulated_score",
+        ]
+        with open(filename, "w") as f:
+            csv.writer(f).writerow(cols)
+
+    vals = [
+        experiment_timestep,
+        episode,
+        episode_score,
+        timestep_episode,
+        best_score,
+        accumulated_score,
+    ]
+    with open(filename, "a") as f:
+        csv.writer(f).writerow(vals)
 
 @gin.configurable
 def create_atari_environment(game_name=None, sticky_actions=True, parameter_set='', dir_name=None):
@@ -112,7 +151,8 @@ def create_atari_environment(game_name=None, sticky_actions=True, parameter_set=
         # (30 minutes). The TimeLimit wrapper also plays poorly with saving and
         # restoring states.
         env = env.env
-        env = AtariPreprocessing(env)
+        tag = dir_name.split('_')[-1]
+        env = AtariPreprocessing(env, game_name=game_name, parameter_set=parameter_set, tag=tag)
     return env
 
 
@@ -415,7 +455,7 @@ class AtariPreprocessing(object):
   """
 
   def __init__(self, environment, frame_skip=4, terminal_on_life_loss=False,
-               screen_size=84):
+               screen_size=84, game_name='', parameter_set='', tag=''):
     """Constructor for an Atari 2600 preprocessor.
 
     Args:
@@ -435,10 +475,34 @@ class AtariPreprocessing(object):
       raise ValueError('Target screen size should be strictly positive, got {}'.
                        format(screen_size))
 
+    date = time.strftime("%Y.%m.%d")
+    self.experiment_uuid = uuid.uuid1()
+    self.experiment_id = "{}_{}_{}_{}_{}".format(
+        time.strftime("%Y.%m.%d_%H.%M.%S_%f"),
+        game_name,
+        parameter_set,
+        tag,
+        self.experiment_uuid,
+    )
+
+    self.experiment_outpath = "../experiments/{}/{}/{}/{}".format(
+        'full_efficient_rainbow_atari', game_name, date, self.experiment_id
+    )
+
+    os.makedirs(self.experiment_outpath, exist_ok=True)
+    
     self.environment = environment
     self.terminal_on_life_loss = terminal_on_life_loss
     self.frame_skip = frame_skip
     self.screen_size = screen_size
+
+    self.game_name = game_name
+    self.experiment_timestep = 0 
+    self.episode_timestep = 0
+    self.episode = 0
+    self.episode_score = 0
+    self.best_score = 0
+    self.accumulated_score = 0
 
     obs_dims = self.environment.observation_space
     # Stores temporary observations used for pooling over two successive
@@ -532,6 +596,26 @@ class AtariPreprocessing(object):
       _, reward, game_over, info = self.environment.step(action)
       accumulated_reward += reward
 
+      self.accumulated_score += reward
+      self.experiment_timestep += 1
+      self.episode_timestep += 1
+
+      if (self.game_name == "Pong" and reward > 0) or (self.game_name != "Pong"):
+        self.episode_score += reward
+      
+      self.best_score = max(self.best_score, self.episode_score)
+
+      log_game_score(
+            self.experiment_outpath,
+            self.experiment_id,
+            self.experiment_timestep,
+            self.episode,
+            self.episode_score,
+            self.episode_timestep,
+            self.best_score,
+            self.accumulated_score,
+      )
+
       if self.terminal_on_life_loss:
         new_lives = self.environment.ale.lives()
         is_terminal = game_over or new_lives < self.lives
@@ -540,6 +624,9 @@ class AtariPreprocessing(object):
         is_terminal = game_over
 
       if is_terminal:
+        self.episode += 1
+        self.episode_timestep = 0
+        self.episode_score = 0
         break
       # We max-pool over the last two frames, in grayscale.
       elif time_step >= self.frame_skip - 2:
